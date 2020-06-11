@@ -1,0 +1,173 @@
+FROM ubuntu:16.04
+
+WORKDIR /root
+
+
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/ports.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    rm -rf /etc/apt/sources.list.d/* && \
+    apt-get update --fix-missing && \
+    apt-get install -y \
+      curl pkg-config build-essential make g++ cmake automake libtool wget unzip libtbb2 libtbb-dev \
+      libjpeg8-dev libjasper-dev libpng12-dev libavcodec-dev libavformat-dev \
+      libswscale-dev libv4l-dev libatlas-base-dev gfortran libfreetype6 libfreetype6-dev \
+      libhdf5-dev  libssl-dev libgoogle-glog-dev && \
+    wget https://xmake.io/shget.text -O /tmp/xmake_install.sh && \
+    bash /tmp/xmake_install.sh && \
+    echo "PATH=/root/.local/bin:$PATH">>/etc/profile && \
+    . /etc/profile && \
+    apt-get autoclean && apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+
+ENV INSTALL_PREFIX=/usr/local/ \
+    CFLAGS=-fPIC \
+    CXXFLAGS="-fPIC -std=c++11" \
+    XMAKE_ROOT=y \
+    PATH=$PATH:/root/.local/bin
+
+
+#编译opencv
+ADD package/opencv opencv
+RUN \
+    cd /root/opencv && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=RELEASE \
+        -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX \
+        -DINSTALL_C_EXAMPLES=OFF \
+        -DINSTALL_PYTHON_EXAMPLES=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_TESTS=OFF .. && \
+    cd ~/opencv/build && \
+    make -j $(nproc) && \
+    make install && \
+    cp ~/opencv/build/3rdparty/lib/* /usr/local/lib && \
+    make clean  && \
+    # clean opencv repos
+    rm -rf ~/opencv/build && \
+    rm -rf ~/opencv/3rdparty && \
+    rm -rf ~/opencv/doc && \
+    rm -rf ~/opencv/include && \
+    rm -rf ~/opencv/platforms && \
+    rm -rf ~/opencv/modules && \
+    rm -rf ~/opencv/.git
+
+#编译zlib
+ADD package/zlib zlib
+RUN \
+	cd /root/zlib && \
+	./configure --static --prefix=$INSTALL_PREFIX && \
+	make -j$(nproc) && \
+	make install && \
+    make clean
+
+
+#编译gflags
+ADD package/gflags gflags
+RUN \
+    cd /root/gflags && \
+	mkdir build && \
+    cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX .. && \
+    make  -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译protobuf
+ADD package/protobuf protobuf
+RUN \
+    cd /root/protobuf && \
+	./autogen.sh && \
+    ./configure --disable-shared --prefix=$INSTALL_PREFIX && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译leveldb
+ADD package/leveldb leveldb
+RUN \
+	cd /root/leveldb && \
+	sed -i 's/3.9/3.2/g' CMakeLists.txt && \
+	mkdir build && \
+    cd build && \
+    cmake -DLEVELDB_BUILD_TESTS=OFF -DLEVELDB_BUILD_BENCHMARKS=OFF -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX .. && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译brpc
+ADD package/brpc brpc
+RUN \
+	cd /root/brpc && \
+    sed -i 's/char/signed char/g' src/butil/containers/case_ignored_flat_map.cpp && \
+	mkdir build && \
+    cd build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DBUILD_SHARED_LIBS=0 -DBUILD_STATIC_LIBS=1 -DWITH_DEBUG_SYMBOLS=OFF && \
+    make  -j$(nproc) && \
+    make install && \
+    make clean && \
+    rm -rf $INSTALL_PREFIX/lib/libbrpc.so
+
+
+#编译x264
+ ADD package/x264 x264
+RUN \
+    cd /root/x264 && \
+    ./configure --prefix=$INSTALL_PREFIX --enable-static --disable-asm && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译x265
+ADD package/x265 x265
+RUN \
+    cd /root/x265/source && \
+    sed -i 's/lx265/lx265 -lstdc++ -lm -lrt -ldl -lpthread/g' x265.pc.in && \
+    mkdir build && \
+    cd build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DENABLE_SHARED=0 && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译libjpeg-turbo
+ADD package/libjpeg-turbo libjpeg-turbo
+RUN \
+    cd /root/libjpeg-turbo && \
+    mkdir build && \
+    cd build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DENABLE_SHARED=0 -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+#编译libyuv
+ADD package/libyuv libyuv
+RUN \
+    cd /root/libyuv && \
+    mkdir build && \
+    cd build  && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc) && \
+    make install && \
+    rm -rf /usr/local/lib/libyuv.so* && \
+    make clean
+
+#编译FFmpeg
+ADD package/nv-codec-headers nv-codec-headers
+ADD package/FFmpeg FFmpeg
+ADD FFmpeg-flv-h265.patch /root/
+ADD FFmpeg-algo-patch/libavfilter /root/FFmpeg/libavfilter
+ADD FFmpeg-algo-patch/*.sh /root/FFmpeg/
+RUN \
+    cd /root/nv-codec-headers && \
+    make install && \
+    cd /root/FFmpeg && \
+    patch -p1 < /root/FFmpeg-flv-h265.patch && \
+    sed -i 's/[\r]*$//g' patch_ffmpeg.sh && sh patch_ffmpeg.sh && \
+    ./configure --prefix=$INSTALL_PREFIX --enable-static --enable-gpl --enable-nonfree --enable-libx264 --enable-libx265 && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
