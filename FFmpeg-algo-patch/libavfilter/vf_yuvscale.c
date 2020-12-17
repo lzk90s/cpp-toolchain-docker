@@ -13,7 +13,9 @@
 #include "libavfilter/scale.h"
 #include "libavutil/parseutils.h"
 
+#ifdef __linux__
 #include <dlfcn.h>
+#endif
 
 typedef int(*PF_Scale_i420)(const uint8_t *src_y,
                             int src_stride_y,
@@ -152,6 +154,7 @@ static av_cold int init_dict(AVFilterContext *ctx, AVDictionary **opts) {
     ScaleContext *scale = ctx->priv;
     int ret;
 
+#ifdef __linux__
     const char *DLL_NAME = "libyuv_scale.so";
     handle = dlopen(DLL_NAME, RTLD_LAZY);
     if (NULL == handle) {
@@ -172,6 +175,7 @@ static av_cold int init_dict(AVFilterContext *ctx, AVDictionary **opts) {
         dlclose(handle);
         return AVERROR(EINVAL);
     }
+#endif
 
     if (scale->w_expr && !scale->h_expr)
         FFSWAP(char *, scale->w_expr, scale->size_str);
@@ -205,7 +209,9 @@ static av_cold int init_dict(AVFilterContext *ctx, AVDictionary **opts) {
 static av_cold void uninit(AVFilterContext *ctx) {
     ScaleContext *scale = ctx->priv;
     av_dict_free(&scale->opts);
+#ifdef __linux__
     dlclose(handle);
+#endif
 }
 
 //currently we just support the most common YUV420, can add more if needed

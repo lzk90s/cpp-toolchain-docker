@@ -1,8 +1,9 @@
-#FROM nvidia/cuda:9.2-devel-ubuntu16.04
-FROM ubuntu:16.04
+#FROM nvidia/cuda:9.2-devel-ubuntu20.04
+FROM ubuntu:20.04
 
 WORKDIR /root
 
+ENV DEBIAN_FRONTEND noninteractive
 
 RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     sed -i 's/ports.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
@@ -10,8 +11,8 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && 
     apt-get update --fix-missing && \
     apt-get install -y \
     curl pkg-config build-essential make g++ cmake automake libtool wget unzip libtbb2 libtbb-dev \
-    libjpeg8-dev libjasper-dev libpng12-dev libavcodec-dev libavformat-dev \
-    libswscale-dev libv4l-dev libatlas-base-dev gfortran libfreetype6 libfreetype6-dev \
+    libjpeg8-dev libpng-dev libavcodec-dev libavformat-dev \
+    libswscale-dev libv4l-dev libatlas-base-dev gfortran libfreetype6 libfreetype6-dev mingw-w64-x86-64-dev binutils-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
     libhdf5-dev  libssl-dev libgoogle-glog-dev && \
     wget https://xmake.io/shget.text -O /tmp/xmake_install.sh && \
     bash /tmp/xmake_install.sh && \
@@ -20,12 +21,18 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && 
     apt-get autoclean && apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+RUN \
+	update-alternatives --install /usr/bin/x86_64-w64-mingw32-g++ x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix 90 && \
+	update-alternatives --install /usr/bin/x86_64-w64-mingw32-gcc x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix 90
 
 ENV INSTALL_PREFIX=/usr/local/ \
     CFLAGS=-fPIC \
     CXXFLAGS="-fPIC -std=c++11" \
     XMAKE_ROOT=y \
-    PATH=$PATH:/root/.local/bin
+    PATH=$PATH:/root/.local/bin \
+	CROSS_PREFIX=x86_64-w64-mingw32- \
+	CROSS_HOST=x86_64-w64-mingw32 \
+	CROSS_INSTALL_PREFIX=/usr/x86_64-w64-mingw32
 
 
 #编译opencv
@@ -66,6 +73,13 @@ RUN \
     make -j$(nproc) && \
     make install && \
     make clean
+#编译mingw32-zlib
+RUN \
+	cd /root/zlib && \
+	./configure --static --prefix=$CROSS_INSTALL_PREFIX  && \
+	make -j$(nproc) && \
+	make install && \
+	make clean
 
 
 #编译gflags
@@ -129,22 +143,37 @@ RUN \
 ADD package/x264 x264
 RUN \
     cd /root/x264 && \
-    ./configure --prefix=$INSTALL_PREFIX --enable-static && \
+    ./configure --prefix=$INSTALL_PREFIX --enable-static --disable-cli && \
     make -j$(nproc) && \
     make install && \
     make clean
+#编译mingw32-x264
+RUN \
+    cd /root/x264 && \
+	CC=${CROSS_PREFIX}gcc ./configure --prefix=$CROSS_INSTALL_PREFIX --cross-prefix=${CROSS_PREFIX} --host=${CROSS_HOST} --enable-static --disable-cli && \
+	make -j$(nproc) && \
+	make install && \
+	make clean
+
 
 #编译x265
 ADD package/x265 x265
 RUN \
-    cd /root/x265/source && \
-    sed -i 's/lx265/lx265 -lstdc++ -lm -lrt -ldl -lpthread/g' x265.pc.in && \
-    mkdir build && \
-    cd build && \
-    cmake .. -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DENABLE_SHARED=0 && \
+	cd /root/x265/build/linux && \
+	cmake -G "Unix Makefiles" ../../source -DCMAKE_INSTALL_PREFIX=$INSTALL_PREFIX -DENABLE_SHARED=0 -DENABLE_CLI=0 && \
+    sed -i 's/lx265/lx265 -lstdc++ -lm -lrt -ldl -lpthread/g' x265.pc && \
     make -j$(nproc) && \
     make install && \
     make clean
+#编译mingw32-x265
+RUN \
+	cd /root/x265/build/msys && \
+	cmake -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE=toolchain-x86_64-w64-mingw32.cmake ../../source  -DCMAKE_INSTALL_PREFIX=${CROSS_INSTALL_PREFIX} -DENABLE_SHARED=0 -DENABLE_CLI=0 && \
+	sed -i 's/\-lrt\ \-ldl\ \-lpthread$//g' x265.pc && \
+	sed -i 's/\-lgcc$/-lgcc -lpthread/g' x265.pc && \
+	make -j$(nproc) && \
+	make install && \
+	make clean
 
 #编译libjpeg-turbo
 ADD package/libjpeg-turbo libjpeg-turbo
@@ -182,7 +211,14 @@ RUN \
     cd /root/FFmpeg && \
     patch -p1 < /root/FFmpeg-flv-h265.patch && \
     sed -i 's/[\r]*$//g' patch_ffmpeg.sh && sh patch_ffmpeg.sh && \
-    ./configure --prefix=$INSTALL_PREFIX --enable-static --enable-gpl --enable-nonfree --enable-libx264 --enable-libx265 && \
+    ./configure --prefix=$INSTALL_PREFIX --enable-static --enable-gpl --enable-openssl --enable-nonfree --enable-libx264 --enable-libx265 --disable-doc && \
     make -j$(nproc) && \
     make install && \
     make clean
+#编译mingw32-ffmpeg
+RUN \
+	cd /root/FFmpeg && \
+	./configure --prefix=${CROSS_INSTALL_PREFIX} --disable-everything --enable-cross-compile --cross-prefix=${CROSS_PREFIX} --arch=x86_64 --target-os=mingw32 --disable-debug --enable-static --disable-shared --enable-swscale --enable-avformat --disable-avfilter --disable-avdevice  --enable-runtime-cpudetect --enable-version3 --enable-decoder=h264 --enable-decoder=mpeg4 --enable-decoder=flv --enable-protocol=file --enable-protocol=http  --enable-parser=h264 --enable-parser=hevc --enable-decoder=hevc --enable-parser=mpeg4video --enable-parser=mpegvideo --enable-demuxers --disable-encoders --disable-programs --disable-doc && \
+	make -j$(nproc) && \
+	make install && \
+	make clean

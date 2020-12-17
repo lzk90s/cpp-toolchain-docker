@@ -12,7 +12,9 @@
 #include "libswscale/swscale.h"
 #include "libavformat/avformat.h"
 
+#ifdef __linux__
 #include <dlfcn.h>
+#endif
 
 typedef int32_t (*PF_VFilter_Init)(const char *, const char *);
 typedef int32_t (*PF_VFilter_Destroy)(void);
@@ -88,6 +90,7 @@ static av_cold int init(AVFilterContext *ctx) {
 
     //privCtx->cid = (int)channel_id;
 
+#ifdef __linux__
     handle = dlopen(DLL_NAME, RTLD_LAZY| RTLD_LOCAL);
     if (NULL == handle) {
         av_log(NULL, AV_LOG_ERROR, "load library %s failed, error %s\n", DLL_NAME, dlerror());
@@ -97,6 +100,7 @@ static av_cold int init(AVFilterContext *ctx) {
     pf_VFilter_Init = (PF_VFilter_Init)dlsym(handle, "VFilter_Init");
     pf_VFilter_Destroy = (PF_VFilter_Destroy)dlsym(handle, "VFilter_Destroy");
     pf_VFilter_Routine = (PF_VFilter_Routine)dlsym(handle, "VFilter_Routine");
+#endif
 
     if (NULL == pf_VFilter_Init || NULL == pf_VFilter_Destroy || NULL == pf_VFilter_Routine) {
         av_log(NULL, AV_LOG_ERROR, "no symbol found in library, %p, %p, %p\n", pf_VFilter_Init, pf_VFilter_Destroy,
@@ -119,7 +123,9 @@ static av_cold void uninit(AVFilterContext *ctx) {
     if (NULL != pf_VFilter_Destroy) {
         pf_VFilter_Destroy();
     }
+#ifdef __linux__
     dlclose(handle);
+#endif
 }
 
 //currently we just support the most common YUV420, can add more if needed

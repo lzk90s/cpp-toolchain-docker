@@ -10,7 +10,7 @@ REGISTRY=registry.cn-hangzhou.aliyuncs.com
 NAMESPACE=gosun
 IMAGE=brpc_opencv_ffmpeg
 ARCH=$(uname -m)
-TAG=1.2.4
+TAG=3.0.1
 
 docker build -t $REGISTRY/$NAMESPACE/$IMAGE:$ARCH-$TAG . -f Dockerfile-$ARCH
 docker push $REGISTRY/$NAMESPACE/$IMAGE:$ARCH-$TAG

@@ -167,7 +167,7 @@ RUN \
     cd /root/FFmpeg && \
     patch -p1 < /root/FFmpeg-flv-h265.patch && \
     sed -i 's/[\r]*$//g' patch_ffmpeg.sh && sh patch_ffmpeg.sh && \
-    ./configure --prefix=$INSTALL_PREFIX --enable-static --enable-gpl --enable-nonfree --enable-libx264 --enable-libx265 && \
+    ./configure --prefix=$INSTALL_PREFIX --enable-static --enable-openssl --enable-gpl --enable-nonfree --enable-libx264 --enable-libx265 && \
     make -j$(nproc) && \
     make install && \
     make clean
